@@ -1,0 +1,53 @@
+version: "3.1"
+
+intents:
+  - greet
+  - goodbye
+  - budget_query
+  - over_budget_alert
+  - monthly_summary
+  - add_transaction
+  - debt_advice
+  - savings_advice
+  - spending_analysis
+  - set_budget
+  - affirm
+  - deny
+
+entities:
+  - category
+  - amount
+
+slots:
+  category:
+    type: text
+    mappings:
+      - type: from_entity
+        entity: category
+  amount:
+    type: float
+    mappings:
+      - type: from_entity
+        entity: amount
+
+responses:
+  utter_greet:
+    - text: "Hey! I'm Finwise, your personal finance assistant. Ask me about your budget, spending, or savings."
+  utter_goodbye:
+    - text: "Goodbye! Stay on budget!"
+  utter_fallback:
+    - text: "I didn't quite understand that. Try asking about your budget, spending, or savings."
+
+actions:
+  - action_query_budget
+  - action_monthly_summary
+  - action_add_transaction
+  - action_debt_advice
+  - action_savings_advice
+  - action_spending_analysis
+  - action_set_budget
+  - action_over_budget_alert
+
+session_config:
+  session_expiration_time: 60
+  carry_over_slots_to_new_session: true

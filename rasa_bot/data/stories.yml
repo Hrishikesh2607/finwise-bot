@@ -1,0 +1,111 @@
+version: "3.1"
+
+stories:
+
+- story: user checks budget for a category
+  steps:
+    - intent: greet
+    - action: utter_greet
+    - intent: budget_query
+      entities:
+        - category: "food"
+    - action: action_query_budget
+
+- story: user checks budget without specifying category
+  steps:
+    - intent: budget_query
+    - action: action_query_budget
+
+- story: user asks for monthly summary
+  steps:
+    - intent: greet
+    - action: utter_greet
+    - intent: monthly_summary
+    - action: action_monthly_summary
+
+- story: user logs a transaction then checks summary
+  steps:
+    - intent: add_transaction
+      entities:
+        - amount: 500
+        - category: "groceries"
+    - action: action_add_transaction
+    - intent: monthly_summary
+    - action: action_monthly_summary
+
+- story: user checks for overspending
+  steps:
+    - intent: greet
+    - action: utter_greet
+    - intent: over_budget_alert
+    - action: action_over_budget_alert
+
+- story: user asks for debt advice
+  steps:
+    - intent: debt_advice
+    - action: action_debt_advice
+
+- story: user asks for savings advice
+  steps:
+    - intent: savings_advice
+    - action: action_savings_advice
+
+- story: user asks for spending analysis
+  steps:
+    - intent: spending_analysis
+    - action: action_spending_analysis
+
+- story: user sets a budget limit
+  steps:
+    - intent: set_budget
+      entities:
+        - category: "food"
+        - amount: 10000
+    - action: action_set_budget
+
+- story: user sets budget then checks it
+  steps:
+    - intent: set_budget
+      entities:
+        - category: "entertainment"
+        - amount: 3000
+    - action: action_set_budget
+    - intent: budget_query
+      entities:
+        - category: "entertainment"
+    - action: action_query_budget
+
+- story: user logs transaction then checks overspend
+  steps:
+    - intent: add_transaction
+      entities:
+        - amount: 3500
+        - category: "entertainment"
+    - action: action_add_transaction
+    - intent: over_budget_alert
+    - action: action_over_budget_alert
+
+- story: full finance session
+  steps:
+    - intent: greet
+    - action: utter_greet
+    - intent: monthly_summary
+    - action: action_monthly_summary
+    - intent: spending_analysis
+    - action: action_spending_analysis
+    - intent: savings_advice
+    - action: action_savings_advice
+    - intent: goodbye
+    - action: utter_goodbye
+
+- story: debt to savings flow
+  steps:
+    - intent: debt_advice
+    - action: action_debt_advice
+    - intent: savings_advice
+    - action: action_savings_advice
+
+- story: unknown input triggers fallback
+  steps:
+    - intent: nlu_fallback
+    - action: utter_fallback

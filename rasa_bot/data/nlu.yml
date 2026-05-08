@@ -1,0 +1,127 @@
+version: "3.1"
+
+nlu:
+
+- intent: greet
+  examples: |
+    - hey
+    - hello
+    - hi there
+    - good morning
+    - what's up
+    - hey finwise
+
+- intent: goodbye
+  examples: |
+    - bye
+    - goodbye
+    - see you
+    - that's all for now
+    - thanks, bye
+
+- intent: budget_query
+  examples: |
+    - how much can I spend on [food](category) this month
+    - what's my [groceries](category) budget
+    - how much is left for [entertainment](category)
+    - remaining budget for [transport](category)
+    - what's my [health](category) limit
+    - how much have I spent on [food](category)
+    - show me my [dining](category) budget
+    - what's left in my [shopping](category) budget
+    - how much do I have for [utilities](category) this month
+    - is there any budget left for [travel](category)
+
+- intent: over_budget_alert
+  examples: |
+    - am I over budget anywhere
+    - which categories have I exceeded
+    - where have I overspent
+    - show me where I went over
+    - did I go over my [food](category) budget
+    - have I exceeded my [entertainment](category) limit
+    - what did I overspend on this month
+    - am I in the red for any category
+
+- intent: monthly_summary
+  examples: |
+    - show me my spending summary
+    - how much have I spent this month
+    - give me an overview of my finances
+    - what does my budget look like
+    - summarize my expenses
+    - how am I doing financially this month
+    - total spending this month
+    - monthly breakdown please
+
+- intent: add_transaction
+  examples: |
+    - I just spent [500](amount) on [groceries](category)
+    - log [1200](amount) rupees for [rent](category)
+    - add a [300](amount) expense for [transport](category)
+    - I paid [800](amount) for [dining](category)
+    - record [250](amount) for [medicine](category)
+    - spent [2000](amount) on [shopping](category) today
+    - add [150](amount) to [entertainment](category)
+    - log an expense of [600](amount) for [fuel](category)
+
+- intent: debt_advice
+  examples: |
+    - how can I pay off my debt faster
+    - tips to reduce my loan
+    - best way to clear my credit card
+    - how do I pay down debt
+    - debt reduction strategies
+    - I want to become debt free
+    - how to pay off EMI faster
+    - should I use avalanche or snowball method
+
+- intent: savings_advice
+  examples: |
+    - how much should I save this month
+    - tips to save more money
+    - what's a good savings goal
+    - help me save better
+    - how do I build an emergency fund
+    - savings advice for this month
+    - how much can I put aside
+    - I want to start saving
+
+- intent: spending_analysis
+  examples: |
+    - analyze my spending habits
+    - where am I spending the most
+    - show me my spending patterns
+    - what's my biggest expense category
+    - break down my expenses
+    - where does my money go
+    - spending report please
+    - what are my top expenses
+
+- intent: set_budget
+  examples: |
+    - set my [food](category) budget to [10000](amount)
+    - I want to allocate [5000](amount) for [entertainment](category)
+    - update my [transport](category) limit to [3000](amount)
+    - change [groceries](category) budget to [8000](amount)
+    - set a [2000](amount) limit for [dining](category)
+    - my new [health](category) budget is [4000](amount)
+
+- intent: affirm
+  examples: |
+    - yes
+    - yeah
+    - correct
+    - that's right
+    - sure
+    - go ahead
+    - sounds good
+
+- intent: deny
+  examples: |
+    - no
+    - nope
+    - not really
+    - that's wrong
+    - cancel
+    - never mind
