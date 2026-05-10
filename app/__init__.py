@@ -2,6 +2,7 @@ import os
 from flask import Flask
 from flask_sqlalchemy import SQLAlchemy
 from flask_jwt_extended import JWTManager
+from flask_cors import CORS
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -19,6 +20,13 @@ def create_app():
 
     db.init_app(app)
     jwt.init_app(app)
+
+    CORS(app, resources={r"/*":{"origins": [
+        "http://localhost:3000",
+        "http://localhost:8080",
+        "http://127.0.0.1:5500",
+        "null",  
+    ]}})
 
     from app.routes.budget import budget_bp
     from app.routes.transactions import transactions_bp
