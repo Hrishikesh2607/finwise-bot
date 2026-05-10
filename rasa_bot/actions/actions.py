@@ -6,70 +6,93 @@ from rasa_sdk import Action, Tracker
 from rasa_sdk.executor import CollectingDispatcher
 from rasa_sdk.events import SlotSet
 
-logger= logging.getLogger(__name__)
+logger = logging.getLogger(__name__)
 
-FLASK_API_BASE= "http://localhost:5000"
+FLASK_API_BASE = "http://localhost:5000"
 
-def _call_api(endpoint:str, method:str="GET", playload:Dict=None) -> Dict:
-    url= f"{FLASK_API_BASE}{endpoint}"
+
+def _call_api(endpoint: str, method: str = "GET", payload: Dict = None) -> Dict | None:
+    url = f"{FLASK_API_BASE}{endpoint}"
     try:
-        if method=="GET":
-            resp= requests.get(url, params=playload, timeout=5)
+        if method == "GET":
+            resp = requests.get(url, params=payload, timeout=5)
         else:
-            resp= requests.get(url, json=playload, timeout=5)
+            resp = requests.post(url, json=payload, timeout=5)
         resp.raise_for_status()
         return resp.json()
     except requests.exceptions.ConnectionError:
-        logger.warning("Flask API not reachable at %s - running in stub mode",  url)
-        return {}
+        logger.error("Flask API unreachable at %s", url)
+        return None
+    except requests.exceptions.Timeout:
+        logger.error("Flask API timed out at %s", url)
+        return None
     except requests.exceptions.HTTPError as e:
-        logger.warning("API error %s: %s", url, e)
-        return {}
-    
+        logger.error("HTTP error at %s: %s", url, e)
+        return None
+    except Exception as e:
+        logger.error("Unexpected error calling %s: %s", url, e)
+        return None
+
+
+def _api_error_message(dispatcher: CollectingDispatcher, action: str) -> None:
+    dispatcher.utter_message(
+        text=(
+            "Sorry, I'm having trouble reaching the finance backend right now. "
+            "Please make sure the Flask server is running on port 5000."
+        )
+    )
+    logger.warning("Action '%s' failed — Flask API returned None", action)
+
+
 class ActionQueryBudget(Action):
 
     def name(self) -> Text:
         return "action_query_budget"
-    
+
     def run(
-            self,
-            dispatcher: CollectingDispatcher,
-            tracker: Tracker,
-            domain: Dict[Text, Any],
+        self,
+        dispatcher: CollectingDispatcher,
+        tracker: Tracker,
+        domain: Dict[Text, Any],
     ) -> List[Dict[Text, Any]]:
-        
-        category= tracker.get_slot("category")
+
+        category = tracker.get_slot("category")
 
         if not category:
             dispatcher.utter_message(
-                text="Which catgeory would you like to check? "
-                     "For example: Food, transport, entertainment."
+                text="Which category would you like to check? "
+                     "For example: food, transport, or entertainment."
             )
             return []
 
-        data= {
-            "category": category,
-            "spent": 7200,
-            "limit": 9000,
-            "remaining": 1800,
-        }
+        data = _call_api(f"/budget/{category.lower()}")
 
-        if not data:
+        if data is None:
+            _api_error_message(dispatcher, self.name())
+            return []
+
+        if "error" in data:
             dispatcher.utter_message(
-                text=f"Sorry, I couldn't retrieve your {category} budget right now."
+                text=f"I couldn't find a budget for *{category}*. "
+                     "Try setting one first — for example: "
+                     "'Set my food budget to 9000'."
             )
             return []
-        
+
+        pct = int((data["spent"] / data["limit"] * 100)) if data["limit"] > 0 else 0
+        status = "🔴 Over budget" if data["over_budget"] else ("🟡 Almost there" if pct >= 80 else "🟢 On track")
+
         dispatcher.utter_message(
             text=(
-                f"Your *{data['category']}* budget:\n"
-                f"• Spent: ₹{data['spent']:,}\n"
-                f"• Limit: ₹{data['limit']:,}\n"
-                f"• Remaining: ₹{data['remaining']:,}"
+                f"*{data['category']}* budget for {data['month']}:\n"
+                f"• Spent: ₹{data['spent']:,.0f}\n"
+                f"• Limit: ₹{data['limit']:,.0f}\n"
+                f"• Remaining: ₹{data['remaining']:,.0f} ({pct}% used)\n"
+                f"• Status: {status}"
             )
         )
         return [SlotSet("category", category)]
-    
+
 
 class ActionMonthlySummary(Action):
 
@@ -82,58 +105,103 @@ class ActionMonthlySummary(Action):
         tracker: Tracker,
         domain: Dict[Text, Any],
     ) -> List[Dict[Text, Any]]:
-        data = {
-            "total_spent": 13000,
-            "total_limit": 17000,
-            "categories": [
-                {"name": "Food", "spent":7200, "limit":9000},
-                {"name": "Transport", "spent":1800, "limit":3500},
-                {"name": "Health", "spent":900, "limit":2000},
-            ],
-        }
 
-        lines= ["Here's your monthly summary:\n"]
-        for cat in data["categories"]:
-            pct=int(cat["spent"]/cat["limit"]*100)
-            status = "🔴" if cat["spent"] > cat["limit"] else ("🟡" if pct >= 80 else "🟢")
-            lines.append(
-                f"{status} *{cat['name']}*: ₹{cat['spent']:,} / ₹{cat['limit']:,} ({pct}%)"
+        data = _call_api("/budget/summary")
+
+        if data is None:
+            _api_error_message(dispatcher, self.name())
+            return []
+
+        if not data.get("categories"):
+            dispatcher.utter_message(
+                text="No transactions found for this month yet. "
+                     "Start by logging an expense — for example: "
+                     "'I spent 500 on groceries'."
             )
+            return []
+
+        lines = [f"📊 *Summary for {data['month']}*\n"]
+        for cat in data["categories"]:
+            pct = cat["pct_used"]
+            status = "🔴" if cat["over_budget"] else ("🟡" if pct >= 80 else "🟢")
+            lines.append(
+                f"{status} *{cat['category']}*: "
+                f"₹{cat['spent']:,.0f} / ₹{cat['limit']:,.0f} ({pct}%)"
+            )
+
+        pct_total = (
+            int(data["total_spent"] / data["total_limit"] * 100)
+            if data["total_limit"] > 0 else 0
+        )
         lines.append(
-            f"\nTotal: ₹{data['total_spent']:,} of ₹{data['total_limit']:,} used."
+            f"\n💰 Total: ₹{data['total_spent']:,.0f} of "
+            f"₹{data['total_limit']:,.0f} ({pct_total}% used)"
         )
 
         dispatcher.utter_message(text="\n".join(lines))
         return []
-    
-    
+
+
 class ActionAddTransaction(Action):
 
     def name(self) -> Text:
         return "action_add_transaction"
-    
+
     def run(
-            self,
-            dispatcher: CollectingDispatcher,
-            tracker: Tracker,
-            domain: Dict[Text, Any],
+        self,
+        dispatcher: CollectingDispatcher,
+        tracker: Tracker,
+        domain: Dict[Text, Any],
     ) -> List[Dict[Text, Any]]:
-        
-        category= tracker.get_slot("category")
-        amount= tracker.get_slot("amount")
+
+        category = tracker.get_slot("category")
+        amount = tracker.get_slot("amount")
 
         if not category or not amount:
             dispatcher.utter_message(
-                text="Please tell me both the amount and category. "
-                "For example: 'I spent 500 on groceries'."
+                text="Please include both the amount and category. "
+                     "For example: 'I spent 500 on groceries'."
             )
             return []
-        
-        dispatcher.utter_message(
-            text=f"Got it! Logged ₹{float(amount):,.0f} under *{category}*."
+
+        try:
+            amount_float = float(amount)
+        except (ValueError, TypeError):
+            dispatcher.utter_message(text="That amount doesn't look right. Please use a number.")
+            return []
+
+        if amount_float <= 0:
+            dispatcher.utter_message(text="Amount must be greater than zero.")
+            return []
+
+        data = _call_api(
+            "/transactions",
+            method="POST",
+            payload={"category": category, "amount": amount_float},
         )
+
+        if data is None:
+            _api_error_message(dispatcher, self.name())
+            return []
+
+        dispatcher.utter_message(
+            text=(
+                f"✅ Logged ₹{amount_float:,.0f} under *{data['category']}* "
+                f"on {data['date']}."
+            )
+        )
+
+        budget_check = _call_api(f"/budget/{category.lower()}")
+        if budget_check and budget_check.get("over_budget"):
+            dispatcher.utter_message(
+                text=(
+                    f"⚠️ Heads up — you've now exceeded your *{category}* budget! "
+                    f"You're ₹{abs(budget_check['remaining']):,.0f} over the limit."
+                )
+            )
+
         return [SlotSet("category", category), SlotSet("amount", amount)]
-    
+
 
 class ActionOverBudgetAlert(Action):
 
@@ -146,28 +214,33 @@ class ActionOverBudgetAlert(Action):
         tracker: Tracker,
         domain: Dict[Text, Any],
     ) -> List[Dict[Text, Any]]:
-        
-        over= [
-            {"category": "Entertainment", "spent":3100, "limit":2500, "over_by":600}
-        ]
 
-        if not over:
+        data = _call_api("/budget/alerts")
+
+        if data is None:
+            _api_error_message(dispatcher, self.name())
+            return []
+
+        if not data:
             dispatcher.utter_message(
-                text="Great news - you're within budget in all categories this month 🎉"
+                text="🎉 Great news — you're within budget in every category this month!"
             )
             return []
-        
-        lines=["⚠️ You've exceeded your budget in:\n"]
-        for item in over:
+
+        lines = ["⚠️ *Over-budget categories this month:*\n"]
+        for item in data:
             lines.append(
-                f"• *{item['category']}*: spent ₹{item['spent']:,}, "
-                f"limit ₹{item['limit']:,} (over by ₹{item['over_by']:,})"
+                f"🔴 *{item['category']}*: "
+                f"spent ₹{item['spent']:,.0f} vs limit ₹{item['limit']:,.0f} "
+                f"(over by ₹{item['over_by']:,.0f})"
             )
-        lines.append("\nConsider cutting back for the rest of the month.")
+        lines.append(
+            "\n💡 Tip: Redirect unused budget from other categories to cover the gap."
+        )
 
         dispatcher.utter_message(text="\n".join(lines))
         return []
-    
+
 
 class ActionDebtAdvice(Action):
 
@@ -181,6 +254,22 @@ class ActionDebtAdvice(Action):
         domain: Dict[Text, Any],
     ) -> List[Dict[Text, Any]]:
 
+        summary = _call_api("/budget/summary")
+        surplus_tip = ""
+
+        if summary and summary.get("categories"):
+            surplus_cats = [
+                c for c in summary["categories"]
+                if not c["over_budget"] and c["remaining"] > 500
+            ]
+            if surplus_cats:
+                top = max(surplus_cats, key=lambda x: x["remaining"])
+                surplus_tip = (
+                    f"\n\n💡 Your *{top['category']}* budget has "
+                    f"₹{top['remaining']:,.0f} unused this month — "
+                    f"consider redirecting it to your EMI payment."
+                )
+
         dispatcher.utter_message(
             text=(
                 "Here are the two most effective debt reduction strategies:\n\n"
@@ -189,16 +278,15 @@ class ActionDebtAdvice(Action):
                 "the highest-interest debt first.\n\n"
                 "*Snowball method* (builds momentum):\n"
                 "Pay off your smallest debt first for a quick win, then roll "
-                "that payment into the next one.\n\n"
-                "💡 Tip: Check if your transport or health budget has unused "
-                "funds this month — redirect that surplus to your EMI."
+                "that payment into the next one."
+                f"{surplus_tip}"
             )
         )
         return []
 
 
 class ActionSavingsAdvice(Action):
-    
+
     def name(self) -> Text:
         return "action_savings_advice"
 
@@ -209,6 +297,20 @@ class ActionSavingsAdvice(Action):
         domain: Dict[Text, Any],
     ) -> List[Dict[Text, Any]]:
 
+        summary = _call_api("/budget/summary")
+        savings_line = ""
+
+        if summary:
+            total_spent = summary.get("total_spent", 0)
+            total_limit = summary.get("total_limit", 0)
+            surplus = total_limit - total_spent
+            if surplus > 0:
+                savings_line = (
+                    f"\n\n💰 Based on this month, you have "
+                    f"₹{surplus:,.0f} of unspent budget — "
+                    f"a great candidate for your savings account."
+                )
+
         dispatcher.utter_message(
             text=(
                 "A solid savings framework is the *50/30/20 rule*:\n"
@@ -217,12 +319,13 @@ class ActionSavingsAdvice(Action):
                 "• 20% → savings and debt repayment\n\n"
                 "For an emergency fund, aim for 3–6 months of expenses "
                 "in a liquid account before investing.\n\n"
-                "💡 Tip: Automate your savings — set up a standing instruction "
+                "⚙️ Tip: Automate your savings — set a standing instruction "
                 "to move 20% to savings the day your salary arrives."
+                f"{savings_line}"
             )
         )
         return []
-    
+
 
 class ActionSpendingAnalysis(Action):
 
@@ -236,23 +339,44 @@ class ActionSpendingAnalysis(Action):
         domain: Dict[Text, Any],
     ) -> List[Dict[Text, Any]]:
 
-        data = {
-            "top_category": "Food",
-            "top_pct": 55,
-            "trend": "up",
-            "insight": "Your food spending has increased 12% vs last month.",
-        }
+        data = _call_api("/budget/summary")
 
-        dispatcher.utter_message(
-            text=(
-                f"📊 Spending analysis:\n\n"
-                f"Your biggest category is *{data['top_category']}* "
-                f"at {data['top_pct']}% of total tracked spend.\n"
-                f"{data['insight']}\n\n"
-                f"Entertainment has exceeded its cap — "
-                f"consider setting a stricter limit next month."
+        if data is None:
+            _api_error_message(dispatcher, self.name())
+            return []
+
+        if not data.get("categories"):
+            dispatcher.utter_message(
+                text="No spending data found for this month yet."
             )
+            return []
+
+        categories = data["categories"]
+        top = categories[0]
+        over = [c for c in categories if c["over_budget"]]
+        healthy = [c for c in categories if not c["over_budget"] and c["pct_used"] < 60]
+
+        lines = [f"📊 *Spending analysis for {data['month']}*\n"]
+
+        lines.append(
+            f"🏆 Biggest category: *{top['category']}* — "
+            f"₹{top['spent']:,.0f} ({top['pct_used']}% of its budget)"
         )
+
+        if over:
+            over_names = ", ".join(f"*{c['category']}*" for c in over)
+            lines.append(f"🔴 Over budget: {over_names}")
+
+        if healthy:
+            healthy_names = ", ".join(f"*{c['category']}*" for c in healthy)
+            lines.append(f"🟢 Well within limit: {healthy_names}")
+
+        lines.append(
+            f"\n💰 Total spent: ₹{data['total_spent']:,.0f} "
+            f"of ₹{data['total_limit']:,.0f}"
+        )
+
+        dispatcher.utter_message(text="\n".join(lines))
         return []
 
 
@@ -273,12 +397,31 @@ class ActionSetBudget(Action):
 
         if not category or not amount:
             dispatcher.utter_message(
-                text="Please specify both the category and amount. "
+                text="Please tell me both the category and the amount. "
                      "For example: 'Set my food budget to 10000'."
             )
             return []
 
+        try:
+            limit = float(amount)
+        except (ValueError, TypeError):
+            dispatcher.utter_message(text="That amount doesn't look right. Please use a number.")
+            return []
+
+        data = _call_api(
+            "/budget/set",
+            method="POST",
+            payload={"category": category, "limit": limit},
+        )
+
+        if data is None:
+            _api_error_message(dispatcher, self.name())
+            return []
+
         dispatcher.utter_message(
-            text=f"Done! Your *{category}* budget is now set to ₹{float(amount):,.0f}."
+            text=(
+                f"✅ Done! Your *{data['category']}* budget for "
+                f"{data['month']} is now set to ₹{data['limit']:,.0f}."
+            )
         )
         return [SlotSet("category", category), SlotSet("amount", amount)]
